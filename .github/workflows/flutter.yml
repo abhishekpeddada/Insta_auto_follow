@@ -55,8 +55,11 @@ jobs:
           expected=$(keytool -list -v -keystore signing/debug.keystore -storepass android \
             -alias androiddebugkey | awk -F': ' '/SHA256:/{print $2; exit}' | tr -d ':' | tr 'A-F' 'a-f')
           apksigner=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner | sort | tail -1)
-          actual=$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk \
-            | awk -F': ' '/SHA-256 digest:/{print $2; exit}')
+          "$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk \
+            > "$RUNNER_TEMP/apksigner.txt" || true
+          cat "$RUNNER_TEMP/apksigner.txt"
+          actual=$(grep -i 'SHA-256 digest' "$RUNNER_TEMP/apksigner.txt" \
+            | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f')
           echo "expected certificate SHA-256: $expected"
           echo "APK certificate SHA-256:      $actual"
           test -n "$expected" && test "$expected" = "$actual"
