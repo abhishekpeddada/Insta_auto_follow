@@ -118,15 +118,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _importExport() async {
-    final picked = await FilePicker.platform.pickFiles(
+    final picked = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['json'],
-      withData: true,
     );
-    final bytes = picked?.files.single.bytes;
-    if (bytes == null) return;
+    if (picked == null) return;
 
     try {
+      final bytes = await picked.readAsBytes();
       final targets = parseFollowingJson(utf8.decode(bytes));
       setState(() {
         _targets = targets;
