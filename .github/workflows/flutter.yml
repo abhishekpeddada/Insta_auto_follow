@@ -30,6 +30,13 @@ jobs:
           # flutter create also makes a sample test that would fail against this app
           rm -f test/widget_test.dart
 
+      # file_picker needs compileSdk 36 or later. The template uses the Flutter default.
+      - name: Set compileSdk to 36
+        run: |
+          for f in android/app/build.gradle.kts android/app/build.gradle; do
+            [ -f "$f" ] && sed -i -E 's/compileSdk = flutter\.compileSdkVersion/compileSdk = 36/' "$f"
+          done
+
       - name: Allow internet access in the manifest
         run: |
           f=android/app/src/main/AndroidManifest.xml
