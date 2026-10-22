@@ -1,0 +1,17 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+.vscode/
+
+# Platform folders are generated in CI (flutter create); keep them out of git
+android/
+ios/
+
+# Personal Instagram export data must never be committed
+*.json
+!pubspec.json

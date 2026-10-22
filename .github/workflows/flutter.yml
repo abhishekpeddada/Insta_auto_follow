@@ -1,0 +1,47 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The repo keeps only lib/ and test/. Generate the Android project here.
+      - name: Generate Android project
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name ig_follow --org com.example .
+          fi
+          # flutter create also makes a sample test that would fail against this app
+          rm -f test/widget_test.dart
+
+      - name: Allow internet access in the manifest
+        run: |
+          f=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$f" || \
+            sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>' "$f"
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ig-follow-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
