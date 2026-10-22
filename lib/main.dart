@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
-
 import 'dart:io';
+import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -34,6 +33,7 @@ class IgFollowApp extends StatelessWidget {
 /// restricts the account.
 const _dailyLimit = 30;
 const _pageLoadTimeout = Duration(seconds: 30);
+const _scriptTimeout = Duration(seconds: 15);
 const _minDelayBetweenFollows = Duration(seconds: 45);
 const _maxDelayBetweenFollows = Duration(seconds: 120);
 
@@ -79,6 +79,10 @@ class _HomePageState extends State<HomePage> {
   bool _running = false;
   String _status = 'Import your following.json to begin.';
 
+  /// Each Start gets a new id. A loop that finds it is no longer the current
+  /// id exits, so a stuck loop can never run alongside a newer one.
+  int _runId = 0;
+
   Completer<void>? _pageLoaded;
   Completer<String>? _scriptResult;
 
@@ -121,14 +125,6 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  int get _remaining {
-    final done = _ledger?.done ?? const <String>{};
-    return _targets
-        .where((t) => !done.contains(t.username.toLowerCase()))
-        .where((t) => !_skipped.contains(t.username.toLowerCase()))
-        .length;
-  }
-
   Future<void> _importExport() async {
     final picked = await FilePicker.pickFile(
       type: FileType.custom,
@@ -166,17 +162,20 @@ class _HomePageState extends State<HomePage> {
           'Still loading saved progress. Press Start again in a moment.');
       return;
     }
+    final runId = ++_runId;
     setState(() {
       _running = true;
       _status = 'Starting. Log in to Instagram in the panel if asked.';
     });
-    _runLoop();
+    _runLoop(runId);
   }
 
-  Future<void> _runLoop() async {
+  bool _isCurrent(int runId) => _running && runId == _runId;
+
+  Future<void> _runLoop(int runId) async {
     final ledger = _ledger!;
 
-    while (_running) {
+    while (_isCurrent(runId)) {
       final done = ledger.done;
       FollowTarget? next;
       for (final t in _targets) {
@@ -188,49 +187,52 @@ class _HomePageState extends State<HomePage> {
       }
 
       if (next == null) {
-        _stop('Finished. Every account has been processed.');
+        _stop(runId, 'Finished. Every account has been processed.');
         return;
       }
       if (!withinDailyLimit(ledger.todayCount, _dailyLimit)) {
-        _stop('Daily limit of $_dailyLimit follows reached. Resume tomorrow.');
+        _stop(runId,
+            'Daily limit of $_dailyLimit follows reached. Resume tomorrow.');
         return;
       }
 
-      setState(() => _status = 'Opening @${next!.username}...');
+      final username = next.username;
+      setState(() => _status = 'Opening @$username...');
       try {
-        await _openProfile(next.username);
-        await _sleep(const Duration(seconds: 8), const Duration(seconds: 15));
+        await _openProfile(username);
+        await _sleep(
+            runId, const Duration(seconds: 8), const Duration(seconds: 15));
+        if (!_isCurrent(runId)) return;
 
         final result = await _clickFollow();
+        if (!_isCurrent(runId)) return;
+
         switch (result) {
           case 'clicked':
-            await ledger.markDone(next.username, countsAsFollow: true);
-            setState(() => _status = 'Followed @${next!.username}.');
+            await ledger.markDone(username, countsAsFollow: true);
+            setState(() => _status = 'Followed @$username.');
           case 'already':
-            await ledger.markDone(next.username, countsAsFollow: false);
-            setState(
-                () => _status = '@${next!.username} was already followed.');
+            await ledger.markDone(username, countsAsFollow: false);
+            setState(() => _status = '@$username was already followed.');
           case 'login':
-            _stop('Log in to Instagram in the panel, then press Start.');
+            _stop(runId, 'Log in to Instagram in the panel, then press Start.');
             return;
           default:
-            _skipped.add(next.username.toLowerCase());
-            setState(() => _status = 'Skipped @${next!.username} ($result).');
+            _skipped.add(username.toLowerCase());
+            setState(() => _status = 'Skipped @$username ($result).');
         }
       } on TimeoutException {
-        _skipped.add(next.username.toLowerCase());
-        setState(() => _status = 'Timed out on @${next!.username}; skipped.');
+        _skipped.add(username.toLowerCase());
+        if (!_isCurrent(runId)) return;
+        setState(() => _status = 'Timed out on @$username; skipped.');
       }
 
-      if (!_running) break;
-      await _sleep(_minDelayBetweenFollows, _maxDelayBetweenFollows);
+      await _sleep(runId, _minDelayBetweenFollows, _maxDelayBetweenFollows);
     }
-
-    if (mounted) setState(() => _running = false);
   }
 
-  void _stop(String message) {
-    if (!mounted) return;
+  void _stop(int runId, String message) {
+    if (!mounted || runId != _runId) return;
     setState(() {
       _running = false;
       _status = message;
@@ -239,26 +241,33 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openProfile(String username) async {
     _pageLoaded = Completer<void>();
-    await _web.loadRequest(Uri.parse('https://www.instagram.com/$username/'));
+    await _web
+        .loadRequest(Uri.parse('https://www.instagram.com/$username/'))
+        .timeout(_pageLoadTimeout);
     await _pageLoaded!.future.timeout(_pageLoadTimeout);
   }
 
+  /// Every step is bounded by a timeout so the loop can never hang here.
   Future<String> _clickFollow() async {
     _scriptResult = Completer<String>();
-    await _web.runJavaScript(_followScript);
+    try {
+      await _web.runJavaScript(_followScript).timeout(_scriptTimeout);
+    } on TimeoutException {
+      return 'no-response';
+    }
     return _scriptResult!.future.timeout(
-      const Duration(seconds: 15),
+      _scriptTimeout,
       onTimeout: () => 'no-response',
     );
   }
 
   /// Waits a random duration between [min] and [max] so the pacing is not
-  /// perfectly regular. Returns early when the user pauses.
-  Future<void> _sleep(Duration min, Duration max) async {
+  /// perfectly regular. Returns early when the user pauses or a new run starts.
+  Future<void> _sleep(int runId, Duration min, Duration max) async {
     final spreadMs = max.inMilliseconds - min.inMilliseconds;
     final ms = min.inMilliseconds + _random.nextInt(spreadMs + 1);
     final end = DateTime.now().add(Duration(milliseconds: ms));
-    while (_running && DateTime.now().isBefore(end)) {
+    while (_isCurrent(runId) && DateTime.now().isBefore(end)) {
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
@@ -266,7 +275,9 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final total = _targets.length;
-    final doneCount = total - _remaining;
+    final done = _ledger?.done ?? const <String>{};
+    final doneCount =
+        _targets.where((t) => done.contains(t.username.toLowerCase())).length;
     final today = _ledger?.todayCount ?? 0;
 
     return Scaffold(
@@ -281,7 +292,9 @@ class _HomePageState extends State<HomePage> {
                 Text(_status),
                 const SizedBox(height: 4),
                 Text(
-                    'Done $doneCount / $total  ·  Today $today / $_dailyLimit'),
+                  'Done $doneCount / $total  ·  Skipped ${_skipped.length}'
+                  '  ·  Today $today / $_dailyLimit',
+                ),
                 const SizedBox(height: 8),
                 LinearProgressIndicator(
                     value: total == 0 ? 0 : doneCount / total),
