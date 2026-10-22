@@ -38,16 +38,21 @@ const _minDelayBetweenFollows = Duration(seconds: 45);
 const _maxDelayBetweenFollows = Duration(seconds: 120);
 
 /// Runs in the logged-in Instagram profile page and reports one of:
-/// clicked | already | login | not-found
+/// clicked | already | login | not-found: <button labels seen>
+///
+/// Instagram's markup changes, so this searches every button-like element
+/// rather than only those inside a <header>. The first "Follow" on the page
+/// is the profile's own button, which comes before the suggestion cards.
 const _followScript = r'''
 (function () {
   if (document.querySelector('input[name="username"]')) {
     FollowBridge.postMessage('login');
     return;
   }
-  const header = document.querySelector('header');
-  const buttons = header ? Array.from(header.querySelectorAll('button')) : [];
-  const label = (b) => b.innerText.trim();
+  const buttons = Array.from(
+    document.querySelectorAll('button, [role="button"]')
+  );
+  const label = (b) => (b.innerText || b.textContent || '').trim();
   const follow = buttons.find((b) => label(b) === 'Follow');
   if (follow) {
     follow.click();
@@ -58,7 +63,8 @@ const _followScript = r'''
     FollowBridge.postMessage('already');
     return;
   }
-  FollowBridge.postMessage('not-found');
+  const seen = buttons.map(label).filter((t) => t).slice(0, 12).join(' | ');
+  FollowBridge.postMessage('not-found: ' + seen);
 })();
 ''';
 
@@ -78,6 +84,9 @@ class _HomePageState extends State<HomePage> {
   final Set<String> _skipped = {};
   bool _running = false;
   String _status = 'Import your following.json to begin.';
+
+  /// Live countdown shown under the last result while the loop waits.
+  String _wait = '';
 
   /// Each Start gets a new id. A loop that finds it is no longer the current
   /// id exits, so a stuck loop can never run alongside a newer one.
@@ -200,8 +209,8 @@ class _HomePageState extends State<HomePage> {
       setState(() => _status = 'Opening @$username...');
       try {
         await _openProfile(username);
-        await _sleep(
-            runId, const Duration(seconds: 8), const Duration(seconds: 15));
+        await _sleep(runId, 'Checking @$username in',
+            const Duration(seconds: 8), const Duration(seconds: 15));
         if (!_isCurrent(runId)) return;
 
         final result = await _clickFollow();
@@ -227,7 +236,8 @@ class _HomePageState extends State<HomePage> {
         setState(() => _status = 'Timed out on @$username; skipped.');
       }
 
-      await _sleep(runId, _minDelayBetweenFollows, _maxDelayBetweenFollows);
+      await _sleep(runId, 'Next account in', _minDelayBetweenFollows,
+          _maxDelayBetweenFollows);
     }
   }
 
@@ -262,14 +272,20 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Waits a random duration between [min] and [max] so the pacing is not
-  /// perfectly regular. Returns early when the user pauses or a new run starts.
-  Future<void> _sleep(int runId, Duration min, Duration max) async {
+  /// perfectly regular, showing a countdown labelled [prefix]. Returns early
+  /// when the user pauses or a new run starts.
+  Future<void> _sleep(
+      int runId, String prefix, Duration min, Duration max) async {
     final spreadMs = max.inMilliseconds - min.inMilliseconds;
     final ms = min.inMilliseconds + _random.nextInt(spreadMs + 1);
     final end = DateTime.now().add(Duration(milliseconds: ms));
-    while (_isCurrent(runId) && DateTime.now().isBefore(end)) {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+    while (_isCurrent(runId)) {
+      final left = end.difference(DateTime.now());
+      if (left <= Duration.zero) break;
+      setState(() => _wait = '$prefix ${left.inSeconds + 1}s');
+      await Future<void>.delayed(const Duration(seconds: 1));
     }
+    if (mounted) setState(() => _wait = '');
   }
 
   @override
@@ -290,6 +306,7 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(_status),
+                if (_wait.isNotEmpty) Text(_wait),
                 const SizedBox(height: 4),
                 Text(
                   'Done $doneCount / $total  ·  Skipped ${_skipped.length}'
