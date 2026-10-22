@@ -34,8 +34,8 @@ class IgFollowApp extends StatelessWidget {
 const _dailyLimit = 30;
 const _pageLoadTimeout = Duration(seconds: 30);
 const _scriptTimeout = Duration(seconds: 15);
-const _minDelayBetweenFollows = Duration(seconds: 45);
-const _maxDelayBetweenFollows = Duration(seconds: 120);
+const _minDelayBetweenFollows = Duration(seconds: 5);
+const _maxDelayBetweenFollows = Duration(seconds: 5);
 
 /// Runs in the logged-in Instagram profile page and reports one of:
 /// clicked | already | login | not-found: <button labels seen>
