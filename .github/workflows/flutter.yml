@@ -38,12 +38,30 @@ jobs:
 
       - run: flutter pub get
 
-      # Release builds use the debug signing config, which reads ~/.android/debug.keystore.
-      # Use the committed key so every build has the same signature and can update an install.
-      - name: Use the committed signing key
+      # Copying the key to ~/.android/debug.keystore did not change the signature, so
+      # point the release build at the committed keystore explicitly.
+      - name: Sign the release build with the committed key
         run: |
-          mkdir -p "$HOME/.android"
-          cp signing/debug.keystore "$HOME/.android/debug.keystore"
+          python3 - <<'PYEOF'
+          import pathlib
+          p = pathlib.Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          old = 'signingConfig = signingConfigs.getByName("debug")'
+          assert s.count(old) == 1, 'release signing line not found'
+          s = s.replace(old, 'signingConfig = signingConfigs.getByName("committed")')
+          block = '''    signingConfigs {
+              create("committed") {
+                  storeFile = rootProject.file("../signing/debug.keystore")
+                  storePassword = "android"
+                  keyAlias = "androiddebugkey"
+                  keyPassword = "android"
+              }
+          }
+          '''
+          anchor = '    buildTypes {'
+          assert s.count(anchor) == 1, 'buildTypes anchor not found'
+          p.write_text(s.replace(anchor, block + anchor))
+          PYEOF
       - run: flutter analyze
       - run: flutter test
       - run: flutter build apk --release
