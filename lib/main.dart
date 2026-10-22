@@ -97,10 +97,16 @@ class _HomePageState extends State<HomePage> {
       )
       ..loadRequest(Uri.parse('https://www.instagram.com/accounts/login/'));
 
-    SharedPreferences.getInstance().then((prefs) {
-      if (!mounted) return;
-      setState(() => _ledger = FollowLedger(prefs));
-    });
+    SharedPreferences.getInstance().then(
+      (prefs) {
+        if (!mounted) return;
+        setState(() => _ledger = FollowLedger(prefs));
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _status = 'Could not load saved progress: $error');
+      },
+    );
   }
 
   @override
@@ -145,8 +151,13 @@ class _HomePageState extends State<HomePage> {
       });
       return;
     }
-    if (_targets.isEmpty || _ledger == null) {
+    if (_targets.isEmpty) {
       setState(() => _status = 'Import a following.json first.');
+      return;
+    }
+    if (_ledger == null) {
+      setState(() => _status =
+          'Still loading saved progress. Press Start again in a moment.');
       return;
     }
     setState(() {
