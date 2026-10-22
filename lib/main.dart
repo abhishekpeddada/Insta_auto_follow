@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'export_parser.dart';
@@ -97,16 +99,20 @@ class _HomePageState extends State<HomePage> {
       )
       ..loadRequest(Uri.parse('https://www.instagram.com/accounts/login/'));
 
-    SharedPreferences.getInstance().then(
-      (prefs) {
-        if (!mounted) return;
-        setState(() => _ledger = FollowLedger(prefs));
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        setState(() => _status = 'Could not load saved progress: $error');
-      },
-    );
+    _openLedger();
+  }
+
+  Future<void> _openLedger() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final ledger =
+          await FollowLedger.open(File('${dir.path}/follow_ledger.json'));
+      if (!mounted) return;
+      setState(() => _ledger = ledger);
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _status = 'Could not load saved progress: $error');
+    }
   }
 
   @override

@@ -1,8 +1,21 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ig_follow/ledger.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  late Directory dir;
+
+  setUp(() {
+    dir = Directory.systemTemp.createTempSync('ledger_test');
+  });
+
+  tearDown(() {
+    dir.deleteSync(recursive: true);
+  });
+
+  File ledgerFile() => File('${dir.path}/follow_ledger.json');
+
   test('withinDailyLimit stops at the limit', () {
     expect(withinDailyLimit(0, 30), isTrue);
     expect(withinDailyLimit(29, 30), isTrue);
@@ -10,8 +23,7 @@ void main() {
   });
 
   test('markDone records accounts and counts only real follows', () async {
-    SharedPreferences.setMockInitialValues({});
-    final ledger = FollowLedger(await SharedPreferences.getInstance());
+    final ledger = await FollowLedger.open(ledgerFile());
 
     await ledger.markDone('Alpha', countsAsFollow: true);
     await ledger.markDone('beta', countsAsFollow: false);
@@ -20,9 +32,18 @@ void main() {
     expect(ledger.todayCount, 1);
   });
 
+  test('progress survives reopening the file', () async {
+    final first = await FollowLedger.open(ledgerFile());
+    await first.markDone('alpha', countsAsFollow: true);
+
+    final reopened = await FollowLedger.open(ledgerFile());
+
+    expect(reopened.done, {'alpha'});
+    expect(reopened.todayCount, 1);
+  });
+
   test('reset clears progress', () async {
-    SharedPreferences.setMockInitialValues({});
-    final ledger = FollowLedger(await SharedPreferences.getInstance());
+    final ledger = await FollowLedger.open(ledgerFile());
     await ledger.markDone('alpha', countsAsFollow: true);
 
     await ledger.reset();
