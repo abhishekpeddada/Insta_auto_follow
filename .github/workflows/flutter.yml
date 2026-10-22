@@ -37,6 +37,13 @@ jobs:
             sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>' "$f"
 
       - run: flutter pub get
+
+      # Release builds use the debug signing config, which reads ~/.android/debug.keystore.
+      # Use the committed key so every build has the same signature and can update an install.
+      - name: Use the committed signing key
+        run: |
+          mkdir -p "$HOME/.android"
+          cp signing/debug.keystore "$HOME/.android/debug.keystore"
       - run: flutter analyze
       - run: flutter test
       - run: flutter build apk --release
