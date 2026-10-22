@@ -87,7 +87,8 @@ class _HomePageState extends State<HomePage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'FollowBridge',
-        onMessageReceived: (message) => _scriptResult?.complete(message.message),
+        onMessageReceived: (message) =>
+            _scriptResult?.complete(message.message),
       )
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -191,7 +192,8 @@ class _HomePageState extends State<HomePage> {
             setState(() => _status = 'Followed @${next!.username}.');
           case 'already':
             await ledger.markDone(next.username, countsAsFollow: false);
-            setState(() => _status = '@${next!.username} was already followed.');
+            setState(
+                () => _status = '@${next!.username} was already followed.');
           case 'login':
             _stop('Log in to Instagram in the panel, then press Start.');
             return;
@@ -262,9 +264,11 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Text(_status),
                 const SizedBox(height: 4),
-                Text('Done $doneCount / $total  ·  Today $today / $_dailyLimit'),
+                Text(
+                    'Done $doneCount / $total  ·  Today $today / $_dailyLimit'),
                 const SizedBox(height: 8),
-                LinearProgressIndicator(value: total == 0 ? 0 : doneCount / total),
+                LinearProgressIndicator(
+                    value: total == 0 ? 0 : doneCount / total),
                 const SizedBox(height: 8),
                 Row(
                   children: [
